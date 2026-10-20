@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { createClient } from "@supabase/supabase-js";
 
 export interface ProjectConfig {
   readonly id: string;
@@ -20,10 +21,8 @@ export type ConfigState =
   | { readonly ok: false; readonly problems: readonly string[]; readonly password: string | null };
 
 export const DEFAULT_PORT = 5178;
-const DEFAULT_APP_ID = 2;
-const DEFAULT_PROJECT_ID = "default";
-const DEFAULT_PROJECT_NAME = "Years of Us";
-const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const CACHE_TTL_MS = 60_000;
+const NAME_COLUMNS = ["name", "title", "slug"] as const;
 
 let envLoaded = false;
 
@@ -69,82 +68,88 @@ export function readPort(): number {
   return Number.isInteger(port) && port > 0 && port < 65536 ? port : DEFAULT_PORT;
 }
 
-function envPrefix(id: string): string {
-  return `${id.toUpperCase().replace(/-/g, "_")}_`;
-}
-
-function readProject(id: string, prefix: string, problems: string[]): ProjectConfig | null {
-  const read = (key: string) => {
-    const scoped = prefix ? readEnv(`${prefix}${key}`) : null;
-    return scoped === null ? { name: key, value: readEnv(key) } : { name: `${prefix}${key}`, value: scoped };
-  };
-  const label = prefix ? `[${id}] ` : "";
-  const url = read("SUPABASE_URL");
-  const key = read("SUPABASE_SERVICE_ROLE_KEY");
-  const appIdRaw = read("APP_ID");
-  const appId = appIdRaw.value === null ? DEFAULT_APP_ID : Number(appIdRaw.value);
-  const before = problems.length;
-
-  const missing = (key: string) =>
-    `${label}${prefix ? `Neither ${prefix}${key} nor ${key} is set.` : `${key} is not set.`}`;
-
-  if (!url.value) problems.push(missing("SUPABASE_URL"));
-  else if (!/^https?:\/\/\S+$/.test(url.value))
-    problems.push(`${label}${url.name} must be a full URL like https://xyz.supabase.co.`);
-  if (!key.value) problems.push(missing("SUPABASE_SERVICE_ROLE_KEY"));
-  else {
-    const problem = keyProblem(key.name, key.value);
-    if (problem) problems.push(`${label}${problem}`);
-  }
-  if (!Number.isInteger(appId) || appId <= 0) problems.push(`${label}${appIdRaw.name} must be a positive whole number.`);
-
-  if (problems.length > before || !url.value || !key.value) return null;
-  return {
-    id,
-    name: (prefix ? readEnv(`${prefix}NAME`) : readEnv("PROJECT_NAME")) ?? (prefix ? id : DEFAULT_PROJECT_NAME),
-    supabaseUrl: url.value.replace(/\/+$/, ""),
-    supabaseKey: key.value,
-    expoAccessToken: read("EXPO_ACCESS_TOKEN").value,
-    appId,
-  };
-}
-
-function readProjectIds(problems: string[]): readonly string[] | null {
-  const raw = readEnv("PROJECTS");
-  if (raw === null) return null;
-  const ids = raw
-    .split(",")
-    .map((id) => id.trim().toLowerCase())
-    .filter(Boolean);
-  for (const id of ids) {
-    if (!PROJECT_ID_PATTERN.test(id))
-      problems.push(`PROJECTS: "${id}" is not a valid id. Use lowercase letters, digits and dashes.`);
-  }
-  const duplicates = ids.filter((id, index) => ids.indexOf(id) !== index);
-  if (duplicates.length > 0) problems.push(`PROJECTS lists ${[...new Set(duplicates)].join(", ")} more than once.`);
-  if (ids.length === 0) problems.push("PROJECTS is set but empty.");
-  return ids;
-}
-
-export function readConfig(): ConfigState {
+export function readPassword(): string | null {
   loadDotEnv();
-  const password = readEnv("DASHBOARD_PASSWORD");
+  return readEnv("DASHBOARD_PASSWORD");
+}
+
+function notConfigured(problems: readonly string[]): ConfigState {
+  return { ok: false, problems, password: readPassword() };
+}
+
+function appName(row: Record<string, unknown>, appId: number): string {
+  for (const column of NAME_COLUMNS) {
+    const value = row[column];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return `App ${appId}`;
+}
+
+// A per-app token (EXPO_ACCESS_TOKEN_<appId>) wins over the shared EXPO_ACCESS_TOKEN. Never read from the database.
+function expoTokenFor(appId: number): string | null {
+  return readEnv(`EXPO_ACCESS_TOKEN_${appId}`) ?? readEnv("EXPO_ACCESS_TOKEN");
+}
+
+async function fetchConfig(): Promise<ConfigState> {
+  const url = readEnv("SUPABASE_URL");
+  const key = readEnv("SUPABASE_SERVICE_ROLE_KEY");
   const problems: string[] = [];
-  const ids = readProjectIds(problems);
-  if (problems.length > 0) return { ok: false, problems, password };
+  if (!url) problems.push("SUPABASE_URL is not set.");
+  else if (!/^https?:\/\/\S+$/.test(url)) problems.push("SUPABASE_URL must be a full URL like https://xyz.supabase.co.");
+  if (!key) problems.push("SUPABASE_SERVICE_ROLE_KEY is not set.");
+  else {
+    const problem = keyProblem("SUPABASE_SERVICE_ROLE_KEY", key);
+    if (problem) problems.push(problem);
+  }
+  if (problems.length > 0 || !url || !key) return notConfigured(problems);
 
-  const projects = (ids ?? [DEFAULT_PROJECT_ID])
-    .map((id) => readProject(id, ids ? envPrefix(id) : "", problems))
-    .filter((project): project is ProjectConfig => project !== null);
-
-  const seen = new Map<string, string>();
-  for (const project of projects) {
-    const target = `${project.supabaseUrl}|${project.appId}`;
-    const other = seen.get(target);
-    if (other) problems.push(`[${other}] and [${project.id}] point at the same Supabase project and APP_ID.`);
-    else seen.set(target, project.id);
+  const supabaseUrl = url.replace(/\/+$/, "");
+  const client = createClient(supabaseUrl, key, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+  const { data, error } = await client.from("apps").select("*").order("id", { ascending: true });
+  if (error) {
+    console.error("[dashboard] could not load apps:", error.message);
+    return notConfigured([
+      "Couldn't load the apps table from Supabase. Check SUPABASE_URL and the key, and that the project isn't paused.",
+    ]);
   }
 
-  if (problems.length > 0) return { ok: false, problems, password };
-  return { ok: true, config: { password, projects } };
+  const projects: ProjectConfig[] = [];
+  for (const row of (data ?? []) as Record<string, unknown>[]) {
+    const appId = Number(row.id);
+    if (!Number.isInteger(appId) || appId <= 0) continue;
+    projects.push({
+      id: String(appId),
+      name: appName(row, appId),
+      supabaseUrl,
+      supabaseKey: key,
+      expoAccessToken: expoTokenFor(appId),
+      appId,
+    });
+  }
+  if (projects.length === 0) return notConfigured(["The apps table in Supabase has no rows."]);
+  return { ok: true, config: { password: readPassword(), projects } };
+}
+
+let cache: { readonly state: ConfigState & { readonly ok: true }; readonly at: number } | null = null;
+let inflight: Promise<ConfigState> | null = null;
+
+// Loads the app list from Supabase. A failed refresh keeps serving the last good list.
+export function refreshConfig(force = false): Promise<ConfigState> {
+  if (!force && cache && Date.now() - cache.at < CACHE_TTL_MS) return Promise.resolve(cache.state);
+  inflight ??= fetchConfig()
+    .then((state) => {
+      if (state.ok) cache = { state, at: Date.now() };
+      return state.ok || !cache ? state : cache.state;
+    })
+    .finally(() => {
+      inflight = null;
+    });
+  return inflight;
+}
+
+// Cheap path for data routes: whatever was loaded last, loading once if nothing was.
+export function getConfig(): Promise<ConfigState> {
+  return cache ? Promise.resolve(cache.state) : refreshConfig();
 }

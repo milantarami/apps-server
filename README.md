@@ -21,29 +21,29 @@ with them.
    - `SUPABASE_SERVICE_ROLE_KEY`: the **secret** key (`sb_secret_…`) or the legacy `service_role` key. Not the
      publishable key. This key bypasses row level security, so it stays in `.env.local` / `.env.prod` (gitignored) and is only read by
      the dashboard's server code; it never reaches the browser bundle.
-   - `EXPO_ACCESS_TOKEN` (optional): only if you turn on "Enhanced push security" for the Expo project.
+   - `EXPO_ACCESS_TOKEN` (optional): only if you turn on "Enhanced push security" for the Expo project. Set
+     `EXPO_ACCESS_TOKEN_<appId>` (for example `EXPO_ACCESS_TOKEN_3`) to override it for one app. The token is read
+     from the env file only, never from the database, and never sent to the browser.
    - `DASHBOARD_PASSWORD` (optional): asks for a password before the dashboard reads devices or sends.
-   - `APP_ID` (default `2`, matches the app's `shared/appConfig.ts`), `PROJECT_NAME` and `DASHBOARD_PORT` (default `5178`).
+   - `DASHBOARD_PORT` (default `5178`).
 3. `pnpm install` (or `make install`).
 
-### More than one project
+### Which apps show up
 
-Set `PROJECTS` to a comma-separated list of ids and the masthead gets a **Project** picker; Compose, Devices and
-History all follow it, and the choice is remembered in the browser. Each id reads `<ID>_NAME`, `<ID>_APP_ID`,
-`<ID>_SUPABASE_URL`, `<ID>_SUPABASE_SERVICE_ROLE_KEY` and `<ID>_EXPO_ACCESS_TOKEN`, with the id upper-cased and
-dashes turned into underscores. Anything left out falls back to the shared unprefixed value, so apps that share one
-Supabase project only need a name and an app id:
+The app list comes from the `apps` table in that Supabase project: every row is shown, ordered by `id`. `id` is the
+`app_id` used in all queries; the name is the first non-empty of `name`, `title` or `slug`, else `App <id>`. With more
+than one app the masthead gets a **Project** picker; Compose, Devices and History follow it. The list is cached for
+60 seconds and refreshed whenever the page loads; if Supabase can't be reached the last good list keeps working, and
+on a first load the setup screen says what failed. Add an app by inserting a row into `apps`.
 
-```sh
-PROJECTS=years-of-us,other-app
-YEARS_OF_US_NAME=Years of Us
-YEARS_OF_US_APP_ID=2
-OTHER_APP_NAME=Other App
-OTHER_APP_APP_ID=3
-```
+Every app needs `push_notifications.sql` and `broadcast_notifications.sql` applied and must register tokens with its
+own app id. All apps share one Supabase project.
 
-Every app needs `push_notifications.sql` and `broadcast_notifications.sql` (from the Years of Us repo) applied to its Supabase project and must register tokens with
-its own app id. Without `PROJECTS` the dashboard runs a single project from the unprefixed values.
+**Migrating from `PROJECTS`:** `PROJECTS`, `PROJECT_NAME`, `APP_ID` and every `<ID>_NAME`, `<ID>_APP_ID`,
+`<ID>_SUPABASE_URL`, `<ID>_SUPABASE_SERVICE_ROLE_KEY` and `<ID>_EXPO_ACCESS_TOKEN` are ignored now. Delete them, keep
+one `SUPABASE_URL` and key, and rename `<ID>_EXPO_ACCESS_TOKEN` to `EXPO_ACCESS_TOKEN_<appId>`. Setups that used a
+different Supabase project per app are no longer supported; project ids in the UI are now app ids (the saved picker
+choice resets once).
 
 ## Run
 
@@ -71,8 +71,8 @@ make docker-clean   # also remove the image
 
 The image holds only the Node binary, the built UI and the server bundled into one file: no `node_modules`, npm
 or pnpm. The env file is never copied into the image; `docker-run` passes `.env.local` or `.env.prod` in with
-`--env-file`, so restart the container after editing it. Docker reads that file literally: write `PROJECT_NAME=Years of Us`, not
-`PROJECT_NAME="Years of Us"`, and keep comments on their own lines. The port is published on `127.0.0.1` only, so
+`--env-file`, so restart the container after editing it. Docker reads that file literally: write `DASHBOARD_PASSWORD=my pass`, not
+`DASHBOARD_PASSWORD="my pass"`, and keep comments on their own lines. The port is published on `127.0.0.1` only, so
 the dashboard stays reachable from this machine alone. Use `make docker-run PORT=5200` for another port.
 
 ## Using it
@@ -103,7 +103,7 @@ build that includes the inbox broadcast fetch.
 
 ### From the dashboard
 
-1. `make dev` and open http://127.0.0.1:5178 → **Compose** (pick the project in the masthead if you use `PROJECTS`).
+1. `make dev` and open http://127.0.0.1:5178 → **Compose** (pick the app in the masthead if there is more than one).
 2. Write the title and message. Optionally pick a screen to open on tap and add JSON data.
 3. Under **Delivery**, set **Expires** (default 7 days, at least 1 hour, at most 30 days).
 4. Leave the audience on **Everyone** (the default) and press **Send to everyone**.
@@ -116,11 +116,11 @@ read copies are removed from the inbox a week after they were read.
 ### From the API
 
 The same send works with `curl` against the running server. The API answers only on localhost and needs the
-`x-dashboard-request: 1` header; add `x-dashboard-password` only when `DASHBOARD_PASSWORD` is set. `project` is
-`default` without `PROJECTS`, otherwise one of its ids.
+`x-dashboard-request: 1` header; add `x-dashboard-password` only when `DASHBOARD_PASSWORD` is set. `project` is the
+app id from the `apps` table (for example `2`).
 
 ```sh
-curl -s 'http://127.0.0.1:5178/api/send?project=default' \
+curl -s 'http://127.0.0.1:5178/api/send?project=2' \
   -H 'content-type: application/json' \
   -H 'x-dashboard-request: 1' \
   -H "x-dashboard-password: $DASHBOARD_PASSWORD" \
@@ -144,7 +144,7 @@ curl -s 'http://127.0.0.1:5178/api/send?project=default' \
 - The response has `broadcastId` (the `broadcast_notifications` row) and the push counts. `sent: 0` with a
   `broadcastId` means no device had push on, so it reached the in-app inbox only.
 
-To check the audience first: `curl -s 'http://127.0.0.1:5178/api/audience?project=default&type=all' -H 'x-dashboard-request: 1'`.
+To check the audience first: `curl -s 'http://127.0.0.1:5178/api/audience?project=2&type=all' -H 'x-dashboard-request: 1'`.
 
 ## How sending works
 
