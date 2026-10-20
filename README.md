@@ -16,10 +16,10 @@ with them.
 ## Setup
 
 1. Apply the app's `scripts/sql/push_notifications.sql` and then `scripts/sql/broadcast_notifications.sql` (for Years of Us: `../concept1/scripts/sql/`) once in the Supabase SQL editor.
-2. `cp .env.example .env` and fill in:
+2. `cp .env.example .env.local` (and `.env.prod` for the real thing) and fill in:
    - `SUPABASE_URL`: the project URL.
    - `SUPABASE_SERVICE_ROLE_KEY`: the **secret** key (`sb_secret_…`) or the legacy `service_role` key. Not the
-     publishable key. This key bypasses row level security, so it stays in `.env` (gitignored) and is only read by
+     publishable key. This key bypasses row level security, so it stays in `.env.local` / `.env.prod` (gitignored) and is only read by
      the dashboard's server code; it never reaches the browser bundle.
    - `EXPO_ACCESS_TOKEN` (optional): only if you turn on "Enhanced push security" for the Expo project.
    - `DASHBOARD_PASSWORD` (optional): asks for a password before the dashboard reads devices or sends.
@@ -48,26 +48,30 @@ its own app id. Without `PROJECTS` the dashboard runs a single project from the 
 ## Run
 
 ```sh
-pnpm dev          # http://127.0.0.1:5178, with hot reload
-pnpm build        # type-check and build the UI into dist/
-pnpm start        # serve dist/ and the API with plain Node (needs Node 24+)
+make dev                # http://127.0.0.1:5178, with hot reload, reads .env.local
+make start ENV=prod     # build, then serve dist/ and the API with plain Node (Node 24+), reads .env.prod
+pnpm build              # type-check and build the UI into dist/
 ```
 
-Restart after editing `.env`. `make help` lists the same commands plus the Docker ones.
+`ENV` is `local` (default) or `prod` and picks `.env.local` or `.env.prod`; the target stops if the file is missing.
+The Makefile sets `ENV_FILE`, which the server reads instead of `.env`, so `ENV_FILE=.env.prod pnpm start` works
+without make. A plain `.env` is only read when `ENV_FILE` is unset (bare `pnpm dev` / `pnpm start`); rename it to
+`.env.local` to use the make targets. Restart after editing the file. `make help` lists the same commands plus the
+Docker ones.
 
 ### Docker
 
 ```sh
 make docker-build   # build the image (about 195 MB, most of it the Node binary)
-make docker-run     # run it on http://127.0.0.1:5178 with your .env
+make docker-run     # run it on http://127.0.0.1:5178 with .env.local (ENV=prod for .env.prod)
 make docker-logs    # follow logs
 make docker-stop    # stop and remove the container
 make docker-clean   # also remove the image
 ```
 
 The image holds only the Node binary, the built UI and the server bundled into one file: no `node_modules`, npm
-or pnpm. `.env` is never copied into the image; `docker-run` passes it in with `--env-file`, so restart the
-container after editing it. Docker reads that file literally: write `PROJECT_NAME=Years of Us`, not
+or pnpm. The env file is never copied into the image; `docker-run` passes `.env.local` or `.env.prod` in with
+`--env-file`, so restart the container after editing it. Docker reads that file literally: write `PROJECT_NAME=Years of Us`, not
 `PROJECT_NAME="Years of Us"`, and keep comments on their own lines. The port is published on `127.0.0.1` only, so
 the dashboard stays reachable from this machine alone. Use `make docker-run PORT=5200` for another port.
 
@@ -99,7 +103,7 @@ build that includes the inbox broadcast fetch.
 
 ### From the dashboard
 
-1. `pnpm dev` and open http://127.0.0.1:5178 → **Compose** (pick the project in the masthead if you use `PROJECTS`).
+1. `make dev` and open http://127.0.0.1:5178 → **Compose** (pick the project in the masthead if you use `PROJECTS`).
 2. Write the title and message. Optionally pick a screen to open on tap and add JSON data.
 3. Under **Delivery**, set **Expires** (default 7 days, at least 1 hour, at most 30 days).
 4. Leave the audience on **Everyone** (the default) and press **Send to everyone**.

@@ -30,8 +30,10 @@ let envLoaded = false;
 export function loadDotEnv(): void {
   if (envLoaded) return;
   envLoaded = true;
-  const file = resolve(process.cwd(), ".env");
+  const name = process.env.ENV_FILE?.trim();
+  const file = resolve(process.cwd(), name || ".env");
   if (existsSync(file)) process.loadEnvFile(file);
+  else if (name) throw new Error(`ENV_FILE points at ${name}, which does not exist.`);
 }
 
 function readEnv(name: string): string | null {
