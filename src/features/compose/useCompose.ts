@@ -4,8 +4,9 @@ import { dashboardApi, isAbortError } from "../../api/dashboardApi.ts";
 import type { FieldErrors } from "../../../shared/compose.ts";
 import type { ReceiptsResponse, SendResponse } from "../../../shared/contract.ts";
 import {
-  EMPTY_DRAFT,
   buildPreview,
+  createEmptyDraft,
+  expiryBounds,
   payloadSize,
   toSendRequest,
   toTarget,
@@ -26,7 +27,8 @@ export interface ReceiptState {
 const IDLE_RECEIPTS: ReceiptState = { loading: false, result: null, error: null };
 
 export function useCompose(project: string, prefillToken: string | null) {
-  const [draft, setDraft] = useState<ComposeDraft>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<ComposeDraft>(() => createEmptyDraft(Date.now()));
+  const [expiryLimits] = useState(() => expiryBounds(Date.now()));
   const [showErrors, setShowErrors] = useState(false);
   const [phase, setPhase] = useState<SendPhase>("idle");
   const [result, setResult] = useState<SendResponse | null>(null);
@@ -62,8 +64,8 @@ export function useCompose(project: string, prefillToken: string | null) {
 
   const target = useMemo(() => toTarget(draft), [draft]);
   const audience = useAudienceCount(project, target, audienceVersion);
-  const errors: FieldErrors = useMemo(() => validateDraft(draft), [draft]);
-  const visibleErrors: FieldErrors = showErrors ? errors : { data: errors.data };
+  const errors: FieldErrors = useMemo(() => validateDraft(draft, Date.now()), [draft]);
+  const visibleErrors: FieldErrors = showErrors ? errors : { data: errors.data, expiresAt: errors.expiresAt };
   const preview = useMemo(() => buildPreview(draft), [draft]);
   const bytes = useMemo(() => payloadSize(draft), [draft]);
   const hasErrors = Object.keys(errors).length > 0;
@@ -122,7 +124,7 @@ export function useCompose(project: string, prefillToken: string | null) {
   const confirmSend = () => void send(target?.type === "all");
   const cancelSend = () => setPhase((current) => (current === "confirming" ? "idle" : current));
   const reset = () => {
-    setDraft((current) => ({ ...EMPTY_DRAFT, audience: current.audience, token: current.token }));
+    setDraft((current) => ({ ...createEmptyDraft(Date.now()), audience: current.audience, token: current.token }));
     setShowErrors(false);
     setResult(null);
     setSendError(null);
@@ -136,6 +138,7 @@ export function useCompose(project: string, prefillToken: string | null) {
     hasErrors,
     preview,
     bytes,
+    expiryLimits,
     audience,
     phase,
     result,

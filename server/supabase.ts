@@ -3,7 +3,7 @@ import type { ProjectConfig } from "./config.ts";
 
 const clients = new Map<string, SupabaseClient>();
 
-export function getSupabase(project: ProjectConfig): SupabaseClient {
+export function getSupabase(project: Pick<ProjectConfig, "supabaseUrl" | "supabaseKey">): SupabaseClient {
   const cacheKey = `${project.supabaseUrl}|${project.supabaseKey}`;
   const cached = clients.get(cacheKey);
   if (cached) return cached;

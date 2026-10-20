@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { ApiError } from "./errors.ts";
 import { getSupabase } from "./supabase.ts";
 import { localOnly, passwordGate } from "./guard.ts";
-import { readConfig, type ProjectConfig } from "./config.ts";
+import { getConfig, readPassword, refreshConfig, type ProjectConfig } from "./config.ts";
 import { listHistory } from "./logRepository.ts";
 import { assertValidTarget, checkReceipts, sendNotification } from "./pushService.ts";
 import { countAudience, disableDevice, listDevices } from "./tokenRepository.ts";
@@ -19,19 +19,14 @@ import type {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function requireProject(c: Context): ProjectConfig {
-  const state = readConfig();
+async function requireProject(c: Context): Promise<ProjectConfig> {
+  const state = await getConfig();
   if (!state.ok) throw new ApiError(503, "not_configured", state.problems.join(" "));
   const id = c.req.query("project");
   if (!id) throw new ApiError(400, "invalid", "Choose a project.");
   const project = state.config.projects.find((item) => item.id === id);
-  if (!project) throw new ApiError(404, "not_found", `Unknown project "${id}". Check PROJECTS in .env.`);
+  if (!project) throw new ApiError(404, "not_found", `Unknown project "${id}". Reload the dashboard to refresh the app list.`);
   return project;
-}
-
-function readPasswordSetting(): string | null {
-  const state = readConfig();
-  return state.ok ? state.config.password : state.password;
 }
 
 function parseTarget(type: string | undefined, value: string | undefined): SendTarget {
@@ -86,6 +81,7 @@ function toSendRequest(raw: unknown): SendRequest {
     sound: input.sound !== false,
     target: sendTarget,
     confirmAll: input.confirmAll === true,
+    expiresAt: typeof input.expiresAt === "string" ? input.expiresAt : "",
   };
 }
 
@@ -94,8 +90,8 @@ export function createApi(): Hono {
 
   app.use("*", localOnly());
 
-  app.get("/status", (c) => {
-    const state = readConfig();
+  app.get("/status", async (c) => {
+    const state = await refreshConfig();
     const body: StatusResponse = state.ok
       ? {
           configured: true,
@@ -117,12 +113,12 @@ export function createApi(): Hono {
     return c.json(body);
   });
 
-  app.use("*", passwordGate(readPasswordSetting));
+  app.use("*", passwordGate(readPassword));
 
   app.get("/session", (c) => c.json({ ok: true }));
 
   app.get("/audience", async (c) => {
-    const config = requireProject(c);
+    const config = await requireProject(c);
     const target = parseTarget(c.req.query("type"), c.req.query("value"));
     assertValidTarget(target);
     const count = await countAudience(getSupabase(config), config.appId, target);
@@ -130,20 +126,20 @@ export function createApi(): Hono {
   });
 
   app.post("/send", async (c) => {
-    const config = requireProject(c);
+    const config = await requireProject(c);
     const request = toSendRequest(await readJson(c));
     return c.json(await sendNotification(getSupabase(config), config, request));
   });
 
   app.post("/sends/:id/receipts", async (c) => {
-    const config = requireProject(c);
+    const config = await requireProject(c);
     const id = c.req.param("id");
     if (!UUID_PATTERN.test(id)) throw new ApiError(400, "invalid", "Unknown send id.");
     return c.json(await checkReceipts(getSupabase(config), config, id));
   });
 
   app.get("/devices", async (c) => {
-    const config = requireProject(c);
+    const config = await requireProject(c);
     const { devices, truncated } = await listDevices(getSupabase(config), config.appId);
     const enabled = devices.filter((device) => device.enabled);
     const body: DevicesResponse = {
@@ -168,7 +164,7 @@ export function createApi(): Hono {
   });
 
   app.post("/devices/:id/disable", async (c) => {
-    const config = requireProject(c);
+    const config = await requireProject(c);
     const id = c.req.param("id");
     if (!UUID_PATTERN.test(id)) throw new ApiError(400, "invalid", "Unknown device id.");
     const found = await disableDevice(getSupabase(config), config.appId, id);
@@ -177,7 +173,7 @@ export function createApi(): Hono {
   });
 
   app.get("/history", async (c) => {
-    const config = requireProject(c);
+    const config = await requireProject(c);
     return c.json({ entries: await listHistory(getSupabase(config), config.appId) } satisfies HistoryResponse);
   });
 

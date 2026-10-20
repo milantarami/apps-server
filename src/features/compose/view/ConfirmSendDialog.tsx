@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Button } from "../../../ui/Button.tsx";
 import styles from "./ConfirmDialog.module.css";
-import { formatCount } from "../../../ui/format.ts";
+import { formatCount, formatDateTime } from "../../../ui/format.ts";
 import { audienceLabel, type AudienceChoice, type PreviewModel } from "../service/composeDraft.ts";
 
 interface ConfirmSendDialogProps {
@@ -41,7 +41,8 @@ export function ConfirmSendDialog({
         <div className={styles.figure}>
           <span className={styles.number}>{count === null ? "?" : formatCount(count)}</span>
           <span className={styles.caption}>
-            {count === 1 ? "device" : "devices"} · {audienceLabel(audience)}, right now.
+            {count === 1 ? "device gets" : "devices get"} a push right now · plus {audienceLabel(audience)}
+            {preview.expiresAt ? ` until ${formatDateTime(preview.expiresAt)}` : ""}.
           </span>
         </div>
         <blockquote className={styles.quote}>
@@ -53,7 +54,7 @@ export function ConfirmSendDialog({
             Cancel
           </Button>
           <Button variant="primary" onClick={onConfirm}>
-            Send to {count === null ? "all" : formatCount(count)}
+            Send to everyone
           </Button>
         </div>
       </div>

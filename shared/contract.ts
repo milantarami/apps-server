@@ -14,6 +14,7 @@ export interface SendRequest {
   readonly sound: boolean;
   readonly target: SendTarget;
   readonly confirmAll: boolean;
+  readonly expiresAt: string;
 }
 
 export interface ReasonCount {
@@ -41,6 +42,7 @@ export interface AudienceResponse {
 
 export interface SendResponse {
   readonly logId: string | null;
+  readonly broadcastId: string | null;
   readonly sent: number;
   readonly ok: number;
   readonly errors: number;

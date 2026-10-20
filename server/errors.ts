@@ -17,12 +17,16 @@ interface PostgrestLikeError {
   readonly hint?: string | null;
 }
 
-export function fromSupabase(action: string, error: PostgrestLikeError): ApiError {
+export function fromSupabase(
+  action: string,
+  error: PostgrestLikeError,
+  sqlFile: string = "push_notifications.sql"
+): ApiError {
   if (error.code === "42P01" || error.code === "PGRST205") {
     return new ApiError(
       503,
       "not_configured",
-      "Push tables are missing. Run the app's scripts/sql/push_notifications.sql in Supabase."
+      `Push tables are missing. Run the app's scripts/sql/${sqlFile} in Supabase.`
     );
   }
   if (error.code === "42501") {
