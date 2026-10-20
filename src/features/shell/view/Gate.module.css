@@ -1,0 +1,92 @@
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-5) var(--space-9);
+  display: grid;
+  gap: var(--space-6);
+}
+
+.eyebrow {
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--color-accent-deep);
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: var(--text-display);
+  font-weight: var(--weight-light);
+  font-variation-settings: "opsz" 144;
+  letter-spacing: -0.035em;
+  line-height: 0.95;
+}
+
+.title em {
+  font-weight: var(--weight-black);
+  font-style: italic;
+  color: var(--color-accent);
+}
+
+.lede {
+  font-size: var(--text-lg);
+  color: var(--color-text-soft);
+  max-width: 48ch;
+}
+
+.steps {
+  counter-reset: step;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-5);
+}
+
+.step {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  gap: var(--space-1) var(--space-4);
+}
+
+.step::before {
+  content: counter(step, decimal-leading-zero);
+  grid-row: span 2;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  color: var(--color-accent);
+  padding-top: 2px;
+}
+
+.stepTitle {
+  font-weight: var(--weight-bold);
+}
+
+.stepBody {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--color-bg-sunken);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  padding: 1px var(--space-1);
+}
+
+.form {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 420px;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
