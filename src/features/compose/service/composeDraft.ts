@@ -2,15 +2,20 @@ import { routeLabel } from "../../../../shared/routes.ts";
 import type { SendRequest, SendTarget } from "../../../../shared/contract.ts";
 import {
   ANDROID_CHANNELS,
+  buildDeliveryData,
+  BROADCAST_ID_PLACEHOLDER,
   buildPushData,
   estimatePayloadBytes,
+  EXPIRY_DEFAULT_MS,
+  EXPIRY_MAX_MS,
+  EXPIRY_MIN_MS,
   isValidToken,
   parseCustomData,
   validateMessage,
   type FieldErrors,
 } from "../../../../shared/compose.ts";
 
-export type AudienceChoice = "all" | "android" | "ios" | "token";
+export type AudienceChoice = "all" | "token";
 
 export interface ComposeDraft {
   readonly title: string;
@@ -21,18 +26,40 @@ export interface ComposeDraft {
   readonly sound: boolean;
   readonly audience: AudienceChoice;
   readonly token: string;
+  readonly expiresAt: string;
 }
 
-export const EMPTY_DRAFT: ComposeDraft = {
-  title: "",
-  body: "",
-  route: "",
-  dataText: "",
-  channelId: ANDROID_CHANNELS[0].id,
-  sound: true,
-  audience: "token",
-  token: "",
-};
+function pad(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+export function toLocalDateTimeInput(time: number): string {
+  const date = new Date(time);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function expiryBounds(now: number): { readonly min: string; readonly max: string } {
+  return { min: toLocalDateTimeInput(now + EXPIRY_MIN_MS), max: toLocalDateTimeInput(now + EXPIRY_MAX_MS) };
+}
+
+function toIsoExpiry(localValue: string): string {
+  const time = new Date(localValue).getTime();
+  return Number.isFinite(time) ? new Date(time).toISOString() : "";
+}
+
+export function createEmptyDraft(now: number): ComposeDraft {
+  return {
+    title: "",
+    body: "",
+    route: "",
+    dataText: "",
+    channelId: ANDROID_CHANNELS[0].id,
+    sound: true,
+    audience: "all",
+    token: "",
+    expiresAt: toLocalDateTimeInput(now + EXPIRY_DEFAULT_MS),
+  };
+}
 
 export interface PreviewModel {
   readonly title: string;
@@ -41,22 +68,26 @@ export interface PreviewModel {
   readonly routeLabel: string | null;
   readonly channelLabel: string;
   readonly sound: boolean;
+  readonly expiresAt: string;
 }
 
 export function toTarget(draft: ComposeDraft): SendTarget | null {
   if (draft.audience === "all") return { type: "all" };
-  if (draft.audience === "android" || draft.audience === "ios") return { type: "platform", platform: draft.audience };
   return isValidToken(draft.token) ? { type: "token", token: draft.token.trim() } : null;
 }
 
-export function validateDraft(draft: ComposeDraft): FieldErrors {
+export function validateDraft(draft: ComposeDraft, now: number): FieldErrors {
   const parsed = parseCustomData(draft.dataText);
-  const errors = validateMessage({
-    title: draft.title,
-    body: draft.body,
-    route: draft.route || null,
-    data: parsed.ok ? parsed.value : null,
-  });
+  const errors = validateMessage(
+    {
+      title: draft.title,
+      body: draft.body,
+      route: draft.route || null,
+      data: parsed.ok ? parsed.value : null,
+      expiresAt: toIsoExpiry(draft.expiresAt),
+    },
+    now
+  );
   if (!parsed.ok) errors.data = parsed.error;
   if (draft.audience === "token" && !isValidToken(draft.token)) {
     errors.token = draft.token.trim() ? "Expected ExponentPushToken[…]." : "Paste a device token.";
@@ -77,6 +108,7 @@ export function toSendRequest(draft: ComposeDraft, confirmAll: boolean): SendReq
     sound: draft.sound,
     target,
     confirmAll,
+    expiresAt: toIsoExpiry(draft.expiresAt),
   };
 }
 
@@ -85,7 +117,11 @@ export function payloadSize(draft: ComposeDraft): number {
   return estimatePayloadBytes(
     draft.title.trim(),
     draft.body.trim(),
-    buildPushData(draft.route || null, parsed.ok ? parsed.value : null)
+    buildDeliveryData(
+      buildPushData(draft.route || null, parsed.ok ? parsed.value : null),
+      toIsoExpiry(draft.expiresAt),
+      draft.audience === "all" ? BROADCAST_ID_PLACEHOLDER : null
+    )
   );
 }
 
@@ -99,12 +135,11 @@ export function buildPreview(draft: ComposeDraft): PreviewModel {
     routeLabel: routeLabel(draft.route || null),
     channelLabel: ANDROID_CHANNELS.find((channel) => channel.id === draft.channelId)?.label ?? draft.channelId,
     sound: draft.sound,
+    expiresAt: toIsoExpiry(draft.expiresAt),
   };
 }
 
 export function audienceLabel(choice: AudienceChoice): string {
-  if (choice === "all") return "every enabled device";
-  if (choice === "android") return "every Android device";
-  if (choice === "ios") return "every iOS device";
+  if (choice === "all") return "every in-app inbox";
   return "one device";
 }

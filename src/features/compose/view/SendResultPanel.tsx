@@ -14,18 +14,26 @@ interface SendResultPanelProps {
 }
 
 export function SendResultPanel({ result, receipts, onCheckReceipts }: SendResultPanelProps) {
-  const allFailed = result.ok === 0;
+  const inboxOnly = result.broadcastId !== null && result.sent === 0;
+  const allFailed = result.ok === 0 && !inboxOnly;
   const receiptResult = receipts.result;
   return (
     <section className={styles.report} aria-live="polite" aria-labelledby="report-heading">
       <div className={styles.head}>
         <h3 className={styles.title} id="report-heading">
-          {allFailed ? "Expo rejected this send" : "Handed to Expo"}
+          {inboxOnly ? "Posted to the in-app inbox" : allFailed ? "Expo rejected this send" : "Handed to Expo"}
         </h3>
         <Pill tone={allFailed ? "danger" : result.errors > 0 ? "warn" : "success"} dot>
-          {allFailed ? "Failed" : result.errors > 0 ? "Partly sent" : "Accepted"}
+          {inboxOnly ? "In-app only" : allFailed ? "Failed" : result.errors > 0 ? "Partly sent" : "Accepted"}
         </Pill>
       </div>
+      {result.broadcastId ? (
+        <Notice tone="info">
+          {inboxOnly
+            ? "No device has push on, so nothing was pushed. Every user still sees it in the app's notifications."
+            : "Also posted to every user's in-app notifications, including people with push off."}
+        </Notice>
+      ) : null}
       <dl className={styles.figures}>
         <div className={styles.figure}>
           <dt>messages</dt>

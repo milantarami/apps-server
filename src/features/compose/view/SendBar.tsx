@@ -21,14 +21,14 @@ function describe(choice: AudienceChoice, audience: AudienceCount): string {
     return audience.count > 0 ? "Registered device. Sends to this token only." : "Not in Supabase yet; sends anyway.";
   }
   if (audience.count === null) return "Counting devices…";
-  return `${audience.count === 1 ? "device" : "devices"} · ${audienceLabel(choice)}`;
+  return `${audience.count === 1 ? "device" : "devices"} with push on · plus ${audienceLabel(choice)}`;
 }
 
 export function SendBar({ projectName, audienceChoice, audience, sending, onSend, onClear }: SendBarProps) {
   const isBroadcast = audienceChoice !== "token";
   const count = isBroadcast ? audience.count : audience.count === null ? null : 1;
-  const blocked = isBroadcast && (audience.count === null || audience.count === 0);
-  const sendLabel = !isBroadcast ? "Send test" : count ? `Send to ${formatCount(count)}` : "Send";
+  const blocked = isBroadcast && audience.count === null;
+  const sendLabel = isBroadcast ? "Send to everyone" : "Send test";
 
   return (
     <div className={styles.bar}>

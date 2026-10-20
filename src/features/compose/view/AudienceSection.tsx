@@ -6,10 +6,12 @@ import { SectionHeading } from "../../../ui/SectionHeading.tsx";
 import type { AudienceChoice, ComposeDraft } from "../service/composeDraft.ts";
 
 const CHOICES: readonly { readonly value: AudienceChoice; readonly title: string; readonly hint: string }[] = [
-  { value: "token", title: "One device", hint: "Paste a token to test on your own phone first." },
-  { value: "android", title: "Android", hint: "Every enabled Android device." },
-  { value: "ios", title: "iOS", hint: "Every enabled iPhone and iPad." },
-  { value: "all", title: "Everyone", hint: "Every enabled device. Asks to confirm." },
+  {
+    value: "all",
+    title: "Everyone",
+    hint: "Posts to every user's in-app notifications and pushes to devices with push on. Asks to confirm.",
+  },
+  { value: "token", title: "One device", hint: "A test push to one token. Not posted to the in-app feed." },
 ];
 
 interface AudienceSectionProps {
@@ -25,7 +27,7 @@ export function AudienceSection({ draft, errors, onChange }: AudienceSectionProp
         number="04"
         id="audience-heading"
         title="Audience"
-        hint="Only devices with notifications switched on in the app are counted."
+        hint="Everyone includes people with push off: the app picks it up the next time it opens."
       />
       <div className={styles.fields}>
         <fieldset className={styles.choiceGrid}>

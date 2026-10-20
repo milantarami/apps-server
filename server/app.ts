@@ -86,6 +86,7 @@ function toSendRequest(raw: unknown): SendRequest {
     sound: input.sound !== false,
     target: sendTarget,
     confirmAll: input.confirmAll === true,
+    expiresAt: typeof input.expiresAt === "string" ? input.expiresAt : "",
   };
 }
 

@@ -2,8 +2,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { ApiError } from "./errors.ts";
 import type { ProjectConfig } from "./config.ts";
 import { disableTokens, listAudienceTokens } from "./tokenRepository.ts";
+import { insertBroadcast, linkBroadcastLog } from "./broadcastRepository.ts";
 import { fetchPushReceipts, sendPushMessages, type ExpoPushMessage } from "./expoPush.ts";
-import { buildPushData, isValidToken, previewToken, validateMessage } from "../shared/compose.ts";
+import {
+  buildDeliveryData,
+  buildPushData,
+  isValidToken,
+  previewToken,
+  validateMessage,
+} from "../shared/compose.ts";
 import {
   countReasons,
   insertLog,
@@ -17,7 +24,7 @@ import type { ReasonCount, ReceiptsResponse, SendRequest, SendResponse, SendTarg
 const NOT_REGISTERED = "DeviceNotRegistered";
 
 export function describeTarget(target: SendTarget): string {
-  if (target.type === "all") return "All enabled devices";
+  if (target.type === "all") return "Everyone · in-app inbox and all enabled devices";
   if (target.type === "platform") return target.platform === "ios" ? "All iOS devices" : "All Android devices";
   return `One device · ${previewToken(target.token)}`;
 }
@@ -48,28 +55,37 @@ export async function sendNotification(
   assertValidTarget(request.target);
   const title = request.title.trim();
   const body = request.body.trim();
-  const fieldErrors = validateMessage({ title, body, route: request.route, data: request.data });
+  const fieldErrors = validateMessage(
+    { title, body, route: request.route, data: request.data, expiresAt: request.expiresAt },
+    Date.now()
+  );
   const firstError = Object.values(fieldErrors)[0];
   if (firstError) throw new ApiError(400, "invalid", firstError);
   if (request.target.type === "all" && !request.confirmAll) {
     throw new ApiError(400, "invalid", "Sending to every device needs explicit confirmation.");
   }
 
+  const isBroadcast = request.target.type === "all";
+  const expiresAt = new Date(request.expiresAt).toISOString();
   const tokens = await listAudienceTokens(sb, config.appId, request.target);
-  if (tokens.length === 0) throw new ApiError(400, "invalid", "No enabled devices match this audience.");
+  if (tokens.length === 0 && !isBroadcast) throw new ApiError(400, "invalid", "No enabled devices match this audience.");
 
-  const data = buildPushData(request.route, request.data);
+  const baseData = buildPushData(request.route, request.data);
+  const broadcastId = isBroadcast
+    ? await insertBroadcast(sb, { appId: config.appId, title, body, data: baseData ?? {}, expiresAt })
+    : null;
+  const data = buildDeliveryData(baseData, expiresAt, broadcastId);
   const messages: ExpoPushMessage[] = tokens.map((to) => ({
     to,
     title,
     body,
-    ...(data ? { data } : {}),
+    data,
     sound: request.sound ? "default" : null,
     ...(request.channelId ? { channelId: request.channelId } : {}),
     priority: "high",
   }));
 
-  const tickets = await sendPushMessages(messages, config.expoAccessToken);
+  const tickets = messages.length > 0 ? await sendPushMessages(messages, config.expoAccessToken) : [];
   const ticketRefs: TicketRef[] = [];
   const ticketErrors: TicketError[] = [];
   const unregistered: string[] = [];
@@ -110,8 +126,15 @@ export async function sendNotification(
     logError = error instanceof Error ? error.message : String(error);
   }
 
+  if (broadcastId && logId) {
+    await linkBroadcastLog(sb, config.appId, broadcastId, logId).catch((error: unknown) =>
+      console.error("[dashboard] linking broadcast to its push log failed", error)
+    );
+  }
+
   return {
     logId,
+    broadcastId,
     sent: messages.length,
     ok: ticketRefs.length,
     errors: ticketErrors.length,

@@ -1,15 +1,18 @@
 import styles from "./Compose.module.css";
 import form from "../../../ui/Form.module.css";
+import { FieldError } from "../../../ui/FieldError.tsx";
 import { SectionHeading } from "../../../ui/SectionHeading.tsx";
 import type { ComposeDraft } from "../service/composeDraft.ts";
-import { ANDROID_CHANNELS } from "../../../../shared/compose.ts";
+import { ANDROID_CHANNELS, type FieldErrors } from "../../../../shared/compose.ts";
 
 interface DeliverySectionProps {
   readonly draft: ComposeDraft;
+  readonly errors: FieldErrors;
+  readonly expiryLimits: { readonly min: string; readonly max: string };
   readonly onChange: (patch: Partial<ComposeDraft>) => void;
 }
 
-export function DeliverySection({ draft, onChange }: DeliverySectionProps) {
+export function DeliverySection({ draft, errors, expiryLimits, onChange }: DeliverySectionProps) {
   return (
     <section className={styles.section} aria-labelledby="delivery-heading">
       <SectionHeading
@@ -57,6 +60,26 @@ export function DeliverySection({ draft, onChange }: DeliverySectionProps) {
             <span className={styles.switchThumb} />
           </span>
         </label>
+        <div className={form.field}>
+          <label className={form.label} htmlFor="push-expires">
+            Expires
+          </label>
+          <input
+            id="push-expires"
+            type="datetime-local"
+            className={`${form.control} ${errors.expiresAt ? form.invalid : ""}`}
+            value={draft.expiresAt}
+            min={expiryLimits.min}
+            max={expiryLimits.max}
+            onChange={(event) => onChange({ expiresAt: event.target.value })}
+            aria-invalid={errors.expiresAt ? true : undefined}
+            aria-describedby="push-expires-hint push-expires-error"
+          />
+          <FieldError id="push-expires-error" message={errors.expiresAt} />
+          <p id="push-expires-hint" className={form.hint}>
+            Your local time. After this the app marks it read and stops picking it up. Defaults to 7 days, up to 30.
+          </p>
+        </div>
       </div>
     </section>
   );

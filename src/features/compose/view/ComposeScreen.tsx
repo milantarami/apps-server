@@ -35,7 +35,8 @@ export function ComposeScreen({ project, appName, projectName, prefillToken }: C
               Write something <em>worth</em> opening.
             </h2>
             <p className={styles.lede}>
-              Sends through Expo Push to Firebase Cloud Messaging and Apple. Start with one device, then go wide.
+              Posts to every user's in-app notifications and pushes through Expo to Firebase and Apple. Test on one
+              device first.
             </p>
           </header>
           <div className={styles.reveal} style={order(1)}>
@@ -45,7 +46,12 @@ export function ComposeScreen({ project, appName, projectName, prefillToken }: C
             <TapActionSection draft={draft} errors={errors} bytes={compose.bytes} onChange={update} />
           </div>
           <div className={styles.reveal} style={order(3)}>
-            <DeliverySection draft={draft} onChange={update} />
+            <DeliverySection
+              draft={draft}
+              errors={errors}
+              expiryLimits={compose.expiryLimits}
+              onChange={update}
+            />
           </div>
           <div className={styles.reveal} style={order(4)}>
             <AudienceSection draft={draft} errors={errors} onChange={update} />
